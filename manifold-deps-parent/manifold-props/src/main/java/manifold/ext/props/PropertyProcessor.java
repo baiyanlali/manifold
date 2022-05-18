@@ -39,6 +39,7 @@ import manifold.ext.ExtensionTransformer;
 import manifold.ext.props.rt.api.*;
 import manifold.ext.props.rt.api.tags.enter_finish;
 import manifold.ext.props.rt.api.tags.enter_start;
+import manifold.ext.rt.api.Jailbreak;
 import manifold.internal.javac.*;
 import manifold.rt.api.util.ManStringUtil;
 import manifold.rt.api.util.Stack;
@@ -48,11 +49,14 @@ import manifold.util.ReflectUtil;
 import javax.lang.model.element.TypeElement;
 import javax.tools.Diagnostic;
 import javax.tools.JavaFileObject;
+import java.io.RandomAccessFile;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Modifier;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.function.Function;
 
+import static com.sun.tools.javac.code.TypeTag.LONG;
 import static com.sun.tools.javac.code.TypeTag.NONE;
 import static java.lang.reflect.Modifier.*;
 import static manifold.ext.props.PropIssueMsg.*;
@@ -274,10 +278,24 @@ public class PropertyProcessor implements ICompilerComponent, TaskListener
       }
     }
 
+    private void LOG(String msg) {
+      try {
+        RandomAccessFile writer = new RandomAccessFile("D:/LOG.txt", "rw");
+        writer.seek(writer.length());
+        writer.write(msg.getBytes(StandardCharsets.UTF_8));
+        writer.close();
+      } catch (Exception e) {
+        e.printStackTrace();
+      }
+
+    }
+
+
     @Override
     public void visitVarDef( JCVariableDecl tree )
     {
       super.visitVarDef( tree );
+
 
       int modifiers = (int)tree.getModifiers().flags;
 
@@ -290,12 +308,26 @@ public class PropertyProcessor implements ICompilerComponent, TaskListener
           return;
         }
 
+        boolean isPublicDefault = false;
+
+        isPublicDefault = classDecl.getModifiers().annotations.stream().anyMatch(anno-> {
+          LOG("Compare: ");
+          LOG(anno.getAnnotationType().toString());
+          LOG(" && ");
+          LOG(PublicDefault.class.getSimpleName());
+          LOG(String.format("||||| Result is: %s", anno.getAnnotationType().toString().equals(PublicDefault.class.getSimpleName())));
+          LOG("\n");
+
+          return anno.getAnnotationType().toString().equals(PublicDefault.class.getSimpleName());
+        });
+
+
         JCAnnotation var = getAnnotation( tree, var.class );
         JCAnnotation val = getAnnotation( tree, val.class );
         JCAnnotation get = getAnnotation( tree, get.class );
         JCAnnotation set = getAnnotation( tree, set.class );
 
-        if( var == null && val == null && get == null && set == null )
+        if( var == null && val == null && get == null && set == null && !isPublicDefault)
         {
           // not a property field
           return;
@@ -310,6 +342,12 @@ public class PropertyProcessor implements ICompilerComponent, TaskListener
         if( (modifiers & (PUBLIC | PROTECTED | PRIVATE)) == 0 )
         {
           // default @var fields to PUBLIC, they must use PropOption.Package if they really want it
+          tree.getModifiers().flags |= PUBLIC;
+        }
+
+        if(isPublicDefault && (modifiers & (PROTECTED | PRIVATE)) == 0){
+          // if the modifier does not contain protected and private, then add public to it.
+          LOG(String.format("%s is not private or protected -v prop\n", tree.getName().toString()));
           tree.getModifiers().flags |= PUBLIC;
         }
 
