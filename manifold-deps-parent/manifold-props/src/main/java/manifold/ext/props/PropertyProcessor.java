@@ -39,6 +39,7 @@ import manifold.ext.ExtensionTransformer;
 import manifold.ext.props.rt.api.*;
 import manifold.ext.props.rt.api.tags.enter_finish;
 import manifold.ext.props.rt.api.tags.enter_start;
+import manifold.ext.rt.api.Jailbreak;
 import manifold.internal.javac.*;
 import manifold.rt.api.util.ManStringUtil;
 import manifold.rt.api.util.Stack;
@@ -48,11 +49,14 @@ import manifold.util.ReflectUtil;
 import javax.lang.model.element.TypeElement;
 import javax.tools.Diagnostic;
 import javax.tools.JavaFileObject;
+import java.io.RandomAccessFile;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Modifier;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.function.Function;
 
+import static com.sun.tools.javac.code.TypeTag.LONG;
 import static com.sun.tools.javac.code.TypeTag.NONE;
 import static java.lang.reflect.Modifier.*;
 import static manifold.ext.props.PropIssueMsg.*;
@@ -247,13 +251,29 @@ public class PropertyProcessor implements ICompilerComponent, TaskListener
     }
   }
 
-  // Make getter/setter methods corresponding with @var, @get, @set fields
+  // Make getter/setter methods corresponding with @var, @get, @set fields and @PublicDefault fields
   //
   private class Enter_Start extends TreeTranslator
   {
     @Override
     public void visitClassDef( JCClassDecl classDecl )
     {
+
+      if(!_propertyStatements.isEmpty()){
+
+        int modifiers = (int)classDecl.getModifiers().flags;
+
+        JCClassDecl superClassDecl = _propertyStatements.peek().fst;
+        boolean isPublicDefault = superClassDecl.getModifiers().annotations.stream().anyMatch(anno->
+          anno.getAnnotationType().toString().equals(PublicDefault.class.getSimpleName())
+        );
+
+        if(isPublicDefault && (modifiers & (PROTECTED | PRIVATE)) == 0){
+          // if the modifier does not contain protected and private, then add public to it
+          // for classes to avoid enclosing, static is added by default
+          classDecl.getModifiers().flags |= PUBLIC | STATIC;
+        }
+      }
       _propertyStatements.push( new Pair<>( classDecl, new ArrayList<>() ) );
       try
       {
@@ -273,11 +293,32 @@ public class PropertyProcessor implements ICompilerComponent, TaskListener
         _propertyStatements.pop();
       }
     }
+    
+    @Override
+    public void visitMethodDef( JCMethodDecl tree )
+    {
+      super.visitMethodDef(tree);
+      if(!_propertyStatements.isEmpty()){
+
+        int modifiers = (int)tree.getModifiers().flags;
+
+        JCClassDecl classDecl = _propertyStatements.peek().fst;
+        boolean isPublicDefault = classDecl.getModifiers().annotations.stream().anyMatch(anno->
+          anno.getAnnotationType().toString().equals(PublicDefault.class.getSimpleName())
+        );
+
+        if(isPublicDefault && (modifiers & (PROTECTED | PRIVATE)) == 0 && !tree.getName().toString().equals("<init>")){
+          // if the modifier does not contain protected and private, then add public to it
+          tree.getModifiers().flags |= PUBLIC;
+        }
+      }
+    }
 
     @Override
     public void visitVarDef( JCVariableDecl tree )
     {
       super.visitVarDef( tree );
+
 
       int modifiers = (int)tree.getModifiers().flags;
 
@@ -290,12 +331,17 @@ public class PropertyProcessor implements ICompilerComponent, TaskListener
           return;
         }
 
+        boolean isPublicDefault = classDecl.getModifiers().annotations.stream().anyMatch(anno->
+          anno.getAnnotationType().toString().equals(PublicDefault.class.getSimpleName())
+        );
+
+
         JCAnnotation var = getAnnotation( tree, var.class );
         JCAnnotation val = getAnnotation( tree, val.class );
         JCAnnotation get = getAnnotation( tree, get.class );
         JCAnnotation set = getAnnotation( tree, set.class );
 
-        if( var == null && val == null && get == null && set == null )
+        if( var == null && val == null && get == null && set == null && !isPublicDefault)
         {
           // not a property field
           return;
@@ -310,6 +356,11 @@ public class PropertyProcessor implements ICompilerComponent, TaskListener
         if( (modifiers & (PUBLIC | PROTECTED | PRIVATE)) == 0 )
         {
           // default @var fields to PUBLIC, they must use PropOption.Package if they really want it
+          tree.getModifiers().flags |= PUBLIC;
+        }
+
+        if(isPublicDefault && (modifiers & (PROTECTED | PRIVATE)) == 0){
+          // if the modifier does not contain protected and private, then add public to it.
           tree.getModifiers().flags |= PUBLIC;
         }
 
