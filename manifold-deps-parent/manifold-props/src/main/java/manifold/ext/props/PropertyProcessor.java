@@ -293,19 +293,7 @@ public class PropertyProcessor implements ICompilerComponent, TaskListener
         _propertyStatements.pop();
       }
     }
-
-    private void LOG(String msg) {
-      try {
-        RandomAccessFile writer = new RandomAccessFile("D:/LOG.txt", "rw");
-        writer.seek(writer.length());
-        writer.write(msg.getBytes(StandardCharsets.UTF_8));
-        writer.close();
-      } catch (Exception e) {
-        e.printStackTrace();
-      }
-
-    }
-
+    
     @Override
     public void visitMethodDef( JCMethodDecl tree )
     {
