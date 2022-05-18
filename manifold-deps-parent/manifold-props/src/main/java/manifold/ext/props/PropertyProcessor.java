@@ -251,13 +251,29 @@ public class PropertyProcessor implements ICompilerComponent, TaskListener
     }
   }
 
-  // Make getter/setter methods corresponding with @var, @get, @set fields
+  // Make getter/setter methods corresponding with @var, @get, @set fields and @PublicDefault fields
   //
   private class Enter_Start extends TreeTranslator
   {
     @Override
     public void visitClassDef( JCClassDecl classDecl )
     {
+
+      if(!_propertyStatements.isEmpty()){
+
+        int modifiers = (int)classDecl.getModifiers().flags;
+
+        JCClassDecl superClassDecl = _propertyStatements.peek().fst;
+        boolean isPublicDefault = superClassDecl.getModifiers().annotations.stream().anyMatch(anno->
+          anno.getAnnotationType().toString().equals(PublicDefault.class.getSimpleName())
+        );
+
+        if(isPublicDefault && (modifiers & (PROTECTED | PRIVATE)) == 0){
+          // if the modifier does not contain protected and private, then add public to it
+          // for classes to avoid enclosing, static is added by default
+          classDecl.getModifiers().flags |= PUBLIC | STATIC;
+        }
+      }
       _propertyStatements.push( new Pair<>( classDecl, new ArrayList<>() ) );
       try
       {
@@ -290,6 +306,25 @@ public class PropertyProcessor implements ICompilerComponent, TaskListener
 
     }
 
+    @Override
+    public void visitMethodDef( JCMethodDecl tree )
+    {
+      super.visitMethodDef(tree);
+      if(!_propertyStatements.isEmpty()){
+
+        int modifiers = (int)tree.getModifiers().flags;
+
+        JCClassDecl classDecl = _propertyStatements.peek().fst;
+        boolean isPublicDefault = classDecl.getModifiers().annotations.stream().anyMatch(anno->
+          anno.getAnnotationType().toString().equals(PublicDefault.class.getSimpleName())
+        );
+
+        if(isPublicDefault && (modifiers & (PROTECTED | PRIVATE)) == 0 && !tree.getName().toString().equals("<init>")){
+          // if the modifier does not contain protected and private, then add public to it
+          tree.getModifiers().flags |= PUBLIC;
+        }
+      }
+    }
 
     @Override
     public void visitVarDef( JCVariableDecl tree )
@@ -308,18 +343,9 @@ public class PropertyProcessor implements ICompilerComponent, TaskListener
           return;
         }
 
-        boolean isPublicDefault = false;
-
-        isPublicDefault = classDecl.getModifiers().annotations.stream().anyMatch(anno-> {
-          LOG("Compare: ");
-          LOG(anno.getAnnotationType().toString());
-          LOG(" && ");
-          LOG(PublicDefault.class.getSimpleName());
-          LOG(String.format("||||| Result is: %s", anno.getAnnotationType().toString().equals(PublicDefault.class.getSimpleName())));
-          LOG("\n");
-
-          return anno.getAnnotationType().toString().equals(PublicDefault.class.getSimpleName());
-        });
+        boolean isPublicDefault = classDecl.getModifiers().annotations.stream().anyMatch(anno->
+          anno.getAnnotationType().toString().equals(PublicDefault.class.getSimpleName())
+        );
 
 
         JCAnnotation var = getAnnotation( tree, var.class );
@@ -347,7 +373,6 @@ public class PropertyProcessor implements ICompilerComponent, TaskListener
 
         if(isPublicDefault && (modifiers & (PROTECTED | PRIVATE)) == 0){
           // if the modifier does not contain protected and private, then add public to it.
-          LOG(String.format("%s is not private or protected -v prop\n", tree.getName().toString()));
           tree.getModifiers().flags |= PUBLIC;
         }
 

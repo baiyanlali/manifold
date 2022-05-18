@@ -16,4 +16,17 @@ public class PublicDefaultClass {
         this.PublicVar = publicVar;
         this.defaultProtectVar = defaultProtectVar;
     }
+
+    int defaultAddFunction(int a, int b){
+        return a+b;
+    }
+
+    class defaultClass{
+        int unreachableDefaultVar;
+        public int reachablePublicVar;
+    }
+
+    public class publicClass{
+        public int reachablePublicVar;
+    }
 }
